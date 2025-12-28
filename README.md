@@ -4,9 +4,13 @@ This repository contains a modular Python implementation of the **Hopfield Netwo
 
 ## 🧠 Theory Overview
 
-The network consists of  binary neurons . Memory is stored in the synaptic weights  using the **Hebbian Learning Rule**:
+The network consists of $N$ binary neurons $\sigma_i \in \{-1, 1\}$. Memory is stored in the synaptic weights $W_{ij}$ using the **Hebbian Learning Rule**:
 
-where  are the stored memory patterns. The network dynamics follow an energy minimization process defined by the Lyapunov (Energy) function:
+$$W_{ij} = \frac{1}{N} \sum_{\mu=1}^{P} \xi_i^{\mu} \xi_j^{\mu}$$
+
+where $\xi^{\mu}$ are the stored memory patterns. The network dynamics follow an energy minimization process defined by the Lyapunov (Energy) function:
+
+$$E = -\frac{1}{2} \sum_{i,j} W_{ij} \sigma_i \sigma_j$$
 
 ## 🚀 Features
 
