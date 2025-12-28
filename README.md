@@ -53,7 +53,7 @@ pip install numpy matplotlib
 The current scripts simulate several complex behaviors of associative memory:
 
 1. **Standard Retrieval**: Recovering 'H' and 'X' patterns from 30% noise.
-2. **Anti-pattern Retrieval**: Demonstrating how the network can settle into  (the inverted memory).
+2. **Anti-pattern Retrieval**: Demonstrating how the network can settle into $-\xi$ (the inverted memory).
 3. **Spurious States (Hallucinations)**: Identifying local minima that do not correspond to stored memories (hallucinations), occurring when the network is initialized with hybrid patterns.
 
 ## 📈 Energy Minimization
