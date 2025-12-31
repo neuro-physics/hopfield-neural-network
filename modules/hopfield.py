@@ -1,4 +1,136 @@
 import numpy as np
+from enum import IntEnum
+
+def generate_ising_states(N):
+    """
+    Generate the first 2^(N-1) spin configurations of an N-spin Ising system.
+
+    This function constructs a matrix of Ising states, where each row represents 
+    one possible configuration of N spins. Spins are encoded as ±1 values, 
+    corresponding to "up" (+1) and "down" (-1). Only the first half of the 
+    possible states (2^(N-1)) are generated, which is often sufficient due to 
+    symmetry considerations in Ising models.
+
+    Parameters
+    ----------
+    N : int
+        The number of spins in the system. Determines both the number of 
+        configurations generated and the dimensionality of each state vector.
+
+    Returns
+    -------
+    ising_states : numpy.ndarray
+        A matrix of shape (2^(N-1), N), where each row corresponds to a spin 
+        configuration. Entries are ±1, representing spin orientations.
+
+    Notes
+    -----
+    - The number of states is computed as `1 << (N - 1)`, which equals 2^(N-1).
+    - Bitwise operations are used to efficiently extract spin orientations 
+      from integer indices:
+        * Each index encodes a spin configuration in binary form.
+        * Right-shifting and bitwise AND yield individual spin values (0 or 1).
+    - Values are immediately converted to `float64` to avoid overflow in 
+      subsequent numerical operations.
+    - Spin mapping: `0 → +1`, `1 → -1`.
+
+    Examples
+    --------
+    >>> generate_ising_states(3)
+    array([[ 1.,  1.,  1.],
+           [-1.,  1.,  1.],
+           [ 1., -1.,  1.],
+           [-1., -1.,  1.]])
+
+    >>> generate_ising_states(4).shape
+    (8, 4)
+    """
+    num_states = 1 << (N - 1)
+    indices = np.arange(num_states, dtype=np.uint64)
+    # Extract bits: 0 or 1
+    # We use bit shifting and bitwise AND to get 0s and 1s
+    # shape will be (num_states, n)
+    # Force the shift array to be the same type as indices
+    # We explicitly convert the result of the bit-shift to a signed float64 
+    # immediately to prevent overflow in subsequent math.
+    states = ((indices[:, None] >> np.arange(N, dtype=np.uint64)) & 1).astype(np.float64)
+    # Transform to +/- 1 spins
+    # Mapping: 0 -> 1, 1 -> -1 (or vice versa)
+    ising_states = 1.0 - 2.0 * states
+    return ising_states
+
+class DistributionType(IntEnum):
+    Uniform    = 1
+    Normal     = 2
+    IntUniform = 3
+
+def generate_random_interaction_matrix(N, dist_type: DistributionType = 2):
+    """
+    Generate a symmetric random interaction matrix with zero diagonal entries.
+
+    This function creates an NxN matrix representing pairwise interactions 
+    between elements (e.g., nodes, spins, agents). The entries are drawn 
+    from a specified probability distribution, then symmetrized to ensure 
+    the matrix is symmetric. Self-interactions (diagonal entries) are set to zero.
+
+    Parameters
+    ----------
+    N : int
+        The size of the matrix (number of elements). The resulting matrix 
+        will have shape (N, N).
+    
+    dist_type : DistributionType, optional
+        The type of distribution to use for generating random values. 
+        Supported options are:
+        
+        - `DistributionType.Uniform`: entries are drawn from a uniform 
+          distribution over [0, 1).
+        - `DistributionType.IntUniform`: entries are randomly chosen 
+          as either -1 or +1 with equal probability.
+        - `DistributionType.Normal`: entries are drawn from a standard 
+          normal distribution (mean = 0, variance = 1).
+        
+        Default is `2`, which should correspond to one of the defined 
+        `DistributionType` values.
+
+    Returns
+    -------
+    J : numpy.ndarray
+        A symmetric (N, N) matrix with zero diagonal entries. The off-diagonal 
+        entries represent random interactions drawn from the specified distribution.
+
+    Notes
+    -----
+    - Symmetry is enforced by averaging the matrix with its transpose:
+      `(J + J.T) / 2.0`.
+    - Diagonal entries are explicitly set to zero to remove self-interactions.
+    - This function is useful in contexts such as statistical physics 
+      (e.g., spin glass models), network theory, or simulations requiring 
+      random symmetric interaction matrices.
+
+    Examples
+    --------
+    >>> generate_random_interaction_matrix(4, DistributionType.Uniform)
+    array([[ 0.        ,  0.312...,  0.456...,  0.789...],
+           [ 0.312...,  0.        ,  0.654...,  0.123...],
+           [ 0.456...,  0.654...,  0.        ,  0.987...],
+           [ 0.789...,  0.123...,  0.987...,  0.        ]])
+
+    >>> generate_random_interaction_matrix(3, DistributionType.IntUniform)
+    array([[ 0., -1.,  1.],
+           [-1.,  0., -1.],
+           [ 1., -1.,  0.]])
+    """
+    if dist_type == DistributionType.Uniform:
+        J = np.random.rand(N,N)
+    elif dist_type == DistributionType.IntUniform:
+        J = (2.0*np.random.randint(0,2,size=(N,N))-1.0).astype(float)
+    elif dist_type == DistributionType.Normal:
+        J = np.random.normal(0, 1, (N, N))
+    J = (J + J.T) / 2.0  # Ensure symmetry
+    np.fill_diagonal(J, 0) # Remove self-interactions
+    return J
+
 
 def get_H_pattern(L=10):
     """Generates a 2D 'H' shape pattern flattened into a vector."""
