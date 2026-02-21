@@ -213,10 +213,10 @@ def get_max_width_height(img_lst):
     w_max = max(I.shape[1] for I in img_lst)
     return w_max,h_max
 
-def get_image_pattern(img,L=None,bg_state=1):
+def get_image_pattern(img,L=None,bg_state=1,flatten=False, dtype=None):
     if _is_valid_list_of_img(img):
         s = max(get_max_width_height(img))
-        return [ get_image_pattern(_resize_img_cv2(I,s),L=L,bg_state=bg_state) for I in img ]
+        return [ get_image_pattern(_resize_img_cv2(I,s),L=L,bg_state=bg_state,flatten=flatten,dtype=dtype) for I in img ]
     if not img.flags['WRITEABLE']:
         img = img.copy()
     if _exists(L):
@@ -224,12 +224,12 @@ def get_image_pattern(img,L=None,bg_state=1):
     h,w         = img.shape[:2]
     s           = max((h,w))
     i0,j0       = (0,max((s//2 - w//2,0))) if h>=w else (max((s//2-h//2,0)),0)
-    img         = img.astype(int)
+    img         = img.astype(dtype)
     img[img>0]  =  1
     img[img==0] = -1
-    I           = np.full((s,s),bg_state)
+    I                      = np.full((s,s),bg_state,dtype=dtype)
     I[i0:(i0+h),j0:(j0+w)] = img
-    return I
+    return I.flatten() if flatten else I
 
 def initialize_hopfield_model(patterns):
     """
@@ -380,7 +380,7 @@ def calculate_overlap(xi, s):
         return [ calculate_overlap(xxi,s) for xxi in xi ]
     return (1.0/s.size)*np.dot(xi,s)
 
-def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None, save_net_state=False):
+def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None, save_energy=True, save_net_state=False):
     """
     Perform synchronous updates in a Hopfield network and track the system's energy and overlap (if patterns is given).
 
@@ -408,6 +408,8 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None, save_net
         Reference patterns to compare against. If provided, should be an array-like 
         object of shape (P, N), where P is the number of patterns. Overlaps with 
         each pattern are computed at every iteration.
+    save_energy : bool
+        if True, saves energy at every iteration
     save_net_state : bool
         if True, saves network state for every iteration and returns it 
 
@@ -451,8 +453,11 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None, save_net
     s_data         = np.empty((N,max_iter if save_net_state else 0),dtype=float)
     if save_net_state:
         s_data[0,:] = s
-    E_data         = np.empty(max_iter,dtype=float)
-    E_data[0]      = calculate_energy(W,s0)    
+    if save_energy:
+        E_data     = np.empty(max_iter,dtype=float)
+        E_data[0]  = calculate_energy(W,s0)    
+    else:
+        E_data     = np.empty(0,dtype=float)
     m              = np.empty((0,0),dtype=float)
     if has_patterns:
         patterns = np.atleast_2d(patterns) #np.array(_make_list(patterns))
@@ -465,7 +470,8 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None, save_net
         s[s == 0] = 1
         
         # Calculate energy of the new state
-        E_data[t]  = calculate_energy(W,s)
+        if save_energy:
+            E_data[t]  = calculate_energy(W,s)
         if has_patterns:
             m[:,t] = calculate_overlap(patterns,s)
         if save_net_state:
@@ -485,7 +491,7 @@ def _events_to_spins(ds_evt, S0, T):
     T      : final time
     """
     N = len(S0)
-    S = np.zeros((N, T+1), dtype=S0.dtype)
+    S = np.zeros((N, T+1))
 
     # initial condition
     S[:, 0] = S0
@@ -500,7 +506,7 @@ def _events_to_spins(ds_evt, S0, T):
 
     return S
 
-def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None, save_net_state=False):
+def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None, save_energy=True, save_net_state=False):
     """
     Perform asynchronous (sequential) updates in a Hopfield network and track the system's energy.
 
@@ -523,6 +529,8 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None, save_n
         Reference patterns to compare against. If provided, should be an array-like 
         object of shape (P, N), where P is the number of patterns. Overlaps with 
         each pattern are computed after every neuron update.
+    save_energy : bool
+        if True, saves energy at every iteration
     save_net_state : bool
         if set, saves all activation and deactivation events by saving tuples (t,i,ds), spin i changed by ds at time t
         i.e., ds = ds_i[t] = s_i[t]-s_i[t-1]
@@ -580,8 +588,11 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None, save_n
     #if save_net_state:
     #    for t in range(s_data.shape[0]):
     #        s_data[t,:] = s
-    E_data    = np.empty(tTotal, dtype=float)
-    E_data[0] = calculate_energy(W,s)
+    if save_energy:
+        E_data    = np.empty(tTotal, dtype=float)
+        E_data[0] = calculate_energy(W,s)
+    else:
+        E_data    = np.empty(0,dtype=float)
     m         = np.empty((0,0),dtype=float)
     if has_patterns:
         patterns = np.atleast_2d(patterns) #np.array(_make_list(patterns))
@@ -607,7 +618,8 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None, save_n
                 state_changed = True
             
             # Track energy after every single neuron update
-            E_data[t]  = calculate_energy(W,s)
+            if save_energy:
+                E_data[t]  = calculate_energy(W,s)
             if has_patterns:
                 m[:,t] = calculate_overlap(patterns,s)
             t += 1

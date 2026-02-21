@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import collections.abc
 
-def animate_data(xData,Lx,Ly,p=1,anim_interval=20,show_time=True,use_blit=True,theta=0.0,repeat=False,cmap='plasma',figsize=5,ax_title=''):
+
+def animate_data(xData,Lx,Ly,p=1,anim_interval=20,show_time=True,use_blit=True,theta=0.0,repeat=False,cmap='plasma',figsize=5,ax_title='', show_axis=True):
     """
     xData[i,t] -> data of neuron i at time t
     """
@@ -18,17 +19,27 @@ def animate_data(xData,Lx,Ly,p=1,anim_interval=20,show_time=True,use_blit=True,t
 
     assert xData.shape[0]==(Lx*Ly),'The number of neurons (rows in xData) must equal Lx*Ly to fit in a square lattice'
 
-    fig,ax    = plt.subplots(nrows=1,ncols=1,figsize=(figsize,figsize))
+    if show_axis:
+        fig,ax = plt.subplots(nrows=1,ncols=1,figsize=(figsize,figsize))
+    else:
+        fig = plt.figure(figsize=(figsize,figsize))
+        ax  = fig.add_axes([0,0,1,1])
     im        = ax.imshow(xData[:,0].reshape((Lx,Ly)),cmap=cmap,extent=[0.5,Lx+0.5,0.5,Ly+0.5])
     im.set_clim((-1.0,1.0))
     if show_time:
         timestamp = ax.text(0.5,0.95, "", bbox={'facecolor':'w', 'alpha':0.5, 'pad':5}, transform=ax.transAxes, ha="center")
-    ax.set_xticks(numpy.arange(1,Lx+1))
-    ax.set_yticks(numpy.arange(1,Ly+1))
+    
+    if show_axis:
+        #ax.set_xticks(numpy.arange(1,Lx+1))
+        #ax.set_yticks(numpy.arange(1,Ly+1))
+        ax.set_xticks(_choose_ticks(Lx, figsize))
+        ax.set_yticks(_choose_ticks(Ly, figsize))
+        fig.tight_layout()
+    else:
+        ax.axis('off')
+
     if len(ax_title):
         ax.set_title(ax_title)
-
-    fig.tight_layout()
 
     def animate(t):
         #print(t,' and ',d.xData.shape[1])
@@ -63,6 +74,7 @@ def main():
     parser.add_argument('-repeat'     , required=False, action='store_true', default=False, help='if set, repeats the animation indefinitely')
     parser.add_argument('-hidetime'   , required=False, action='store_true', default=False, help='if set, hides time')
     parser.add_argument('-noblit'     , required=False, action='store_true', default=False, help='if set, avoids using blit (may slow the animation, but makes it more precise)')
+    parser.add_argument('-hideaxis'   , required=False, action='store_true', default=False, help='if set, hides the lattice axis')
     parser.add_argument('-save'       , required=False, action='store_true', default=False, help='if set, saves animation')
     args = parser.parse_args()
 
@@ -73,6 +85,7 @@ def main():
     p             = args.pow[0]
     anim_interval = args.interval[0]
     show_time     = not args.hidetime
+    show_axis     = not args.hideaxis
     use_blit      = not args.noblit
     theta         = args.xthreshold[0]
     
@@ -90,7 +103,7 @@ def main():
     ############################
     ############################
     """
-    anim = animate_data(d.xData,d.Network_Param.Lx,d.Network_Param.Ly,p,anim_interval,show_time,use_blit,theta,repeat=args.repeat,cmap=args.cmap[0],figsize=args.figsize[0],ax_title=args.ktzdatafile[0])
+    anim = animate_data(d.xData,d.Network_Param.Lx,d.Network_Param.Ly,p,anim_interval,show_time,use_blit,theta,repeat=args.repeat,cmap=args.cmap[0],figsize=args.figsize[0],ax_title=args.ktzdatafile[0],show_axis=show_axis)
 
     if args.save:
         out_file_name = check_and_get_filename(os.path.splitext(args.ktzdatafile[0])[0] + f'_{args.cmap[0]}.'+args.savefmt[0])
@@ -98,6 +111,17 @@ def main():
         anim.save(out_file_name)
 
     plt.show()
+
+def _choose_ticks(L, figsize):
+    nticks = min(10, max(2, int(figsize * 2.5)))
+    step   = max(1, int(numpy.ceil((L-1) / (nticks-1))))
+    ticks = numpy.arange(1, L+1, step)
+    # force endpoints
+    if ticks[0] != 1:
+        ticks = numpy.insert(ticks, 0, 1)
+    if ticks[-1] != L:
+        ticks = numpy.append(ticks, L)
+    return ticks
 
 def load_ktz_data_txt_file(fileName):
     data  = pandas.read_csv(fileName,sep='\t',dtype=float,skipinitialspace=True,skip_blank_lines=True,comment='#').to_numpy()
