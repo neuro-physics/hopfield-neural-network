@@ -1,3 +1,7 @@
 hopfield_model.code-workspace
 debug.py
+debug.ipynb
 modules/__pycache__
+modules/lib_timeseries_conversion.py
+dataset/*
+dataset

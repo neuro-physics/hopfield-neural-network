@@ -1,6 +1,11 @@
 import numpy as np
 from enum import IntEnum
 
+try:
+    import cv2
+except ModuleNotFoundError:
+    cv2 = None
+
 def generate_ising_states(N):
     """
     Generate the first 2^(N-1) spin configurations of an N-spin Ising system.
@@ -181,6 +186,51 @@ def add_noise(pattern, noise_level=0.25):
     s_noisy[flip_indices] *= -1
     return s_noisy
 
+def  _exists(X):
+    return not(type(X) is type(None))
+
+def _is_nparray_of_object(X):
+    return isinstance(X,np.ndarray) and (X.dtype == np.object_)
+
+def _is_valid_list_of_img(img_lst):
+    return isinstance(img_lst,list) or _is_nparray_of_object(img_lst)
+
+def _resize_img_cv2(img,L):
+    if cv2:
+        h,w = img.shape[:2]
+        if h >= w:
+            img_s = (int((w/h)*L),int(L))
+        else: # w>h
+            img_s = (int(L),int((h/w)*L))
+        return cv2.resize(img,dsize=img_s,interpolation=cv2.INTER_CUBIC)
+    else:
+        print(f'*** WARNING: module cv2 not found, cannot resize figure to fit in size {img_s}')
+
+def get_max_width_height(img_lst):
+    if not _is_valid_list_of_img(img_lst):
+        raise ValueError('img_lst must be a list or a np.ndarray of objects')
+    h_max = max(I.shape[0] for I in img_lst)
+    w_max = max(I.shape[1] for I in img_lst)
+    return w_max,h_max
+
+def get_image_pattern(img,L=None,bg_state=1):
+    if _is_valid_list_of_img(img):
+        s = max(get_max_width_height(img))
+        return [ get_image_pattern(_resize_img_cv2(I,s),L=L,bg_state=bg_state) for I in img ]
+    if not img.flags['WRITEABLE']:
+        img = img.copy()
+    if _exists(L):
+        img = _resize_img_cv2(img,L)
+    h,w         = img.shape[:2]
+    s           = max((h,w))
+    i0,j0       = (0,max((s//2 - w//2,0))) if h>=w else (max((s//2-h//2,0)),0)
+    img         = img.astype(int)
+    img[img>0]  =  1
+    img[img==0] = -1
+    I           = np.full((s,s),bg_state)
+    I[i0:(i0+h),j0:(j0+w)] = img
+    return I
+
 def initialize_hopfield_model(patterns):
     """
     Initialize the weight matrix of a Hopfield network using Hebbian learning.
@@ -330,7 +380,7 @@ def calculate_overlap(xi, s):
         return [ calculate_overlap(xxi,s) for xxi in xi ]
     return (1.0/s.size)*np.dot(xi,s)
 
-def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None):
+def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None, save_net_state=False):
     """
     Perform synchronous updates in a Hopfield network and track the system's energy and overlap (if patterns is given).
 
@@ -358,6 +408,8 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None):
         Reference patterns to compare against. If provided, should be an array-like 
         object of shape (P, N), where P is the number of patterns. Overlaps with 
         each pattern are computed at every iteration.
+    save_net_state : bool
+        if True, saves network state for every iteration and returns it 
 
     Returns
     -------
@@ -368,6 +420,9 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None):
     m : numpy.ndarray
         Overlap values with each pattern at each iteration, shape (P, T).
         If `patterns` is None, an empty array is returned.
+    s_data : numpy.ndarray, shape (N,T)
+        s_data[:,t] -> state of all neurons (spins) at time t
+        if save_net_state == False, then returns just an empty array
 
     Notes
     -----
@@ -390,18 +445,20 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None):
     [[1.0, 1.0],
      [-1.0, -1.0]]
     """
-    has_patterns   = type(patterns) is not type(None)
+    has_patterns   = _exists(patterns)
     N              = len(s_init)
+    s0             = s_init.copy().astype(float)
+    s_data         = np.empty((N,max_iter if save_net_state else 0),dtype=float)
+    if save_net_state:
+        s_data[0,:] = s
     E_data         = np.empty(max_iter,dtype=float)
+    E_data[0]      = calculate_energy(W,s0)    
     m              = np.empty((0,0),dtype=float)
     if has_patterns:
         patterns = np.atleast_2d(patterns) #np.array(_make_list(patterns))
         P        = patterns.shape[0]
         m        = np.empty((P,max_iter),dtype=float)
-    
-    # Calculate initial energy
-    s0        = s_init.copy().astype(float)
-    E_data[0] = calculate_energy(W,s0)
+        m[:,0]   = calculate_overlap(patterns,s0)
     
     for t in range(1,max_iter):
         s         = np.sign(W @ s0)
@@ -411,14 +468,39 @@ def iterate_hopfield_synchronous(W, s_init, max_iter=15, patterns=None):
         E_data[t]  = calculate_energy(W,s)
         if has_patterns:
             m[:,t] = calculate_overlap(patterns,s)
-
+        if save_net_state:
+            s_data[:,t] = s
         if np.array_equal(s, s0):
             break
         s0 = s
         
-    return s, E_data[:(t+1)], m[:,:(t+1)]
+    return s, E_data[:(t+1)], m[:,:(t+1)], s_data[:,:(t+1)]
 
-def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None):
+import numpy as np
+
+def _events_to_spins(ds_evt, S0, T):
+    """
+    ds_evt : list of (t, i, ds)
+    S0     : array of shape (N,) with initial spins (+1 / -1)
+    T      : final time
+    """
+    N = len(S0)
+    S = np.zeros((N, T+1), dtype=S0.dtype)
+
+    # initial condition
+    S[:, 0] = S0
+
+    # copy forward
+    for t in range(1, T+1):
+        S[:, t] = S[:, t-1]
+
+    # apply events
+    for t, i, ds in ds_evt:
+        S[i, t:] += ds   # ds = ±2 flips the spin
+
+    return S
+
+def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None, save_net_state=False):
     """
     Perform asynchronous (sequential) updates in a Hopfield network and track the system's energy.
 
@@ -441,6 +523,10 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None):
         Reference patterns to compare against. If provided, should be an array-like 
         object of shape (P, N), where P is the number of patterns. Overlaps with 
         each pattern are computed after every neuron update.
+    save_net_state : bool
+        if set, saves all activation and deactivation events by saving tuples (t,i,ds), spin i changed by ds at time t
+        i.e., ds = ds_i[t] = s_i[t]-s_i[t-1]
+        ds = +- 2 for standard sign function (0-temperature Hopfield model; +2 for activation; -2 for deactivation)
 
     Returns
     -------
@@ -452,6 +538,10 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None):
     m : numpy.ndarray
         Overlap values with each pattern at each update, shape (P, T).
         If `patterns` is None, an empty array is returned.
+    ds_evt : list of tuple
+        ds_evt = [ (t1,i1,ds1), (t2,i2,ds2), ... ]
+        where (t,i,ds) are the change ds of spin i at time t
+        ds_evt = empty list if save_net_state == False
 
     Notes
     -----
@@ -481,17 +571,23 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None):
     """
     N            = len(s_init)
     indices      = np.arange(N)
-    has_patterns = type(patterns) is not type(None)
+    has_patterns = _exists(patterns)
 
     # Record initial energy
+    tTotal    = max_MCsteps * N
     s         = s_init.copy().astype(float)
-    E_data    = np.empty(max_MCsteps * N, dtype=float)
+    ds_evt    = []
+    #if save_net_state:
+    #    for t in range(s_data.shape[0]):
+    #        s_data[t,:] = s
+    E_data    = np.empty(tTotal, dtype=float)
     E_data[0] = calculate_energy(W,s)
     m         = np.empty((0,0),dtype=float)
     if has_patterns:
         patterns = np.atleast_2d(patterns) #np.array(_make_list(patterns))
         P        = patterns.shape[0]
-        m        = np.empty((P,max_MCsteps * N),dtype=float)
+        m        = np.empty((P,tTotal),dtype=float)
+        m[:,0]   = calculate_overlap(patterns,s)
     t = 1
     for t_MC in range(1,max_MCsteps):
         # t_MC = 1 MC step = 1 epoch
@@ -505,6 +601,8 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None):
             s_i_new = 1.0 if h_i >= 0 else -1.0
             
             if s_i_new != s[i]:
+                if save_net_state:
+                    ds_evt.append((t,i,s_i_new - s[i]))
                 s[i]  = s_i_new
                 state_changed = True
             
@@ -513,9 +611,16 @@ def iterate_hopfield_sequential(W, s_init, max_MCsteps=10, patterns=None):
             if has_patterns:
                 m[:,t] = calculate_overlap(patterns,s)
             t += 1
+        
             
         # If no neurons changed state during a full pass, we've hit a local minimum
         if not state_changed:
             break
-            
-    return s, E_data[:t], m[:,:t]
+    if save_net_state:
+        if len(ds_evt)>0:
+            s_data = _events_to_spins(ds_evt, s_init, tTotal)[:,:t]
+        else:
+            s_data = np.tile(s_init.reshape((N,1)),(1,tTotal))[:,:t]
+    else:
+        s_data = np.empty((N,0),dtype=float)
+    return s, E_data[:t], m[:,:t], s_data
