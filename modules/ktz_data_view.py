@@ -71,6 +71,7 @@ def main():
     parser.add_argument('-pow'        , required=False, nargs=1, metavar='float'   , type=float , default=[3.0]      ,help='the color corresponds to x**pow to highlight nuances')
     parser.add_argument('-xthreshold' , required=False, nargs=1, metavar='float'   , type=float , default=[0.0]      ,help='membrane potential threshold (helps visualizing only spikes)')
     parser.add_argument('-interval'   , required=False, nargs=1, metavar='int_ms'  , type=int   , default=[20]       ,help='interval in ms between consecutive frames')
+    parser.add_argument('-giffps'     , required=False, nargs=1, metavar='fps_gif' , type=int   , default=[20]       ,help='frames per second for gif format')
     parser.add_argument('-repeat'     , required=False, action='store_true', default=False, help='if set, repeats the animation indefinitely')
     parser.add_argument('-hidetime'   , required=False, action='store_true', default=False, help='if set, hides time')
     parser.add_argument('-noblit'     , required=False, action='store_true', default=False, help='if set, avoids using blit (may slow the animation, but makes it more precise)')
@@ -108,7 +109,11 @@ def main():
     if args.save:
         out_file_name = check_and_get_filename(os.path.splitext(args.ktzdatafile[0])[0] + f'_{args.cmap[0]}.'+args.savefmt[0])
         print('saving ... ', out_file_name)
-        anim.save(out_file_name)
+        if args.savefmt[0] == 'gif':
+            writer = animation.PillowWriter(fps=args.giffps[0],metadata={'optimize':True})
+        else:
+            writer = None
+        anim.save(out_file_name,writer=writer)
 
     plt.show()
 
