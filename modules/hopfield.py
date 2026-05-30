@@ -134,31 +134,18 @@ def sort_states_around_energy_minima(states, energies, memories):
     - If no memories are found, states are simply sorted by ascending energy.
     - This arrangement creates a valley-like structure centered on each memory.
     """
-    #"""
-    #Sort states so each memory becomes a visible minimum.
-    #
-    #Strategy
-    #--------
-    #1. Find where memories appear.
-    #2. Assign every state to the nearest memory
-    #   using Euclidean distance between state indices.
-    #3. For each memory basin:
-    #     - states before the memory are sorted by descending energy
-    #     - states after the memory are sorted by ascending energy
-    #This creates a valley centered on each memory.
-    #returns
-    #    sorted_states : 2d numpy array
-    #"""
-    # Indices where memories (or anti-memories) appear
-    memory_indices = find_memory_indices(states, memories)
+    find_memory    = lambda states,m: np.argmax([np.array_equal(s, m) for s in states])
+    mem_ind        = [ find_memory(states,m) for m in memories ]
+    antimem_ind    = [ find_memory(states,-m) for m in memories ]
+    memory_indices = np.array(sorted(mem_ind+antimem_ind))
     # Fallback: no memories found
     if len(memory_indices) == 0:
         order = np.argsort(energies)
-        return np.atleast_2d(states[order])
+        return np.atleast_2d(states[order]), order, energies[order]
     # Group states by nearest memory
     groups = {m: [] for m in memory_indices}
     for i, state in enumerate(states):
-        # Nearest memory index
+        # index of nearest memory
         nearest = min(memory_indices, key=lambda m: abs(i - m))
         groups[nearest].append((i, energies[i], state))
     # Sort left/right states inside each groups
