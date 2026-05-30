@@ -64,6 +64,141 @@ def generate_ising_states(N):
     ising_states = 1.0 - 2.0 * states
     return ising_states
 
+def find_memory_indices(states, memories):
+    """
+    Identify the positions in `states` where any given memory or its negation (anti-memory) occurs.
+
+    Parameters
+    ----------
+    states : list of numpy.ndarray
+        A sequence of state vectors to be checked.
+    memories : list of numpy.ndarray
+        A collection of memory vectors to search for within `states`.
+
+    Returns
+    -------
+    list of int
+        Indices in `states` where a state matches either a memory vector
+        or its negation (-memory).
+    
+    Notes
+    -----
+    - A "memory" is defined as an exact match to one of the vectors in `memories`.
+    - An "anti-memory" is defined as the negation of a memory vector.
+    - Matching is performed using `numpy.array_equal`.
+    """
+    memory_indices = []
+    for i, state in enumerate(states):
+        for mem in memories:
+            # Memory or anti-memory
+            if np.array_equal(state, mem) or np.array_equal(state, -mem):
+                memory_indices.append(i)
+                break
+    return np.array(memory_indices)
+
+def sort_states_around_energy_minima(states, energies, memories):
+    """
+    Reorder states to highlight each memory as a local energy minimum.
+
+    Parameters
+    ----------
+    states : list of numpy.ndarray
+        Sequence of state vectors to be sorted.
+    energies : list or numpy.ndarray
+        Energy values corresponding to each state.
+    memories : list of numpy.ndarray
+        Memory vectors whose positions should act as minima.
+
+    Returns
+    -------
+    states_sorted : numpy.ndarray
+        A 2D array of states reordered so that each memory (or anti-memory)
+        forms the center of a valley in the energy landscape.
+    ind_sorted : numpy.ndarray
+        sorted index of the states
+    E_sorted : numpy.ndarray
+        sorted energy of the states
+
+    Strategy
+    --------
+    1. Locate indices where memories or anti-memories occur in `states`.
+    2. Assign each state to the nearest memory index using Euclidean distance
+       between state indices (not vector values).
+    3. Within each memory basin:
+       - States before the memory are sorted by descending energy.
+       - States at or after the memory are sorted by ascending energy.
+    4. Concatenate all basins to form the final ordering.
+
+    Notes
+    -----
+    - If no memories are found, states are simply sorted by ascending energy.
+    - This arrangement creates a valley-like structure centered on each memory.
+    """
+    #"""
+    #Sort states so each memory becomes a visible minimum.
+    #
+    #Strategy
+    #--------
+    #1. Find where memories appear.
+    #2. Assign every state to the nearest memory
+    #   using Euclidean distance between state indices.
+    #3. For each memory basin:
+    #     - states before the memory are sorted by descending energy
+    #     - states after the memory are sorted by ascending energy
+    #This creates a valley centered on each memory.
+    #returns
+    #    sorted_states : 2d numpy array
+    #"""
+    # Indices where memories (or anti-memories) appear
+    memory_indices = find_memory_indices(states, memories)
+    # Fallback: no memories found
+    if len(memory_indices) == 0:
+        order = np.argsort(energies)
+        return np.atleast_2d(states[order])
+    # Group states by nearest memory
+    groups = {m: [] for m in memory_indices}
+    for i, state in enumerate(states):
+        # Nearest memory index
+        nearest = min(memory_indices, key=lambda m: abs(i - m))
+        groups[nearest].append((i, energies[i], state))
+    # Sort left/right states inside each groups
+    sorted_ind    = []
+    sorted_E      = []
+    sorted_states = []
+    for mem_idx in sorted(memory_indices):
+        group = groups[mem_idx]
+        # Left: high -> low energy
+        left_sorted  = sorted([x for x in group if x[0] < mem_idx],
+                              key=lambda x: x[1], reverse=True)
+        # Right: low -> high energy
+        right_sorted = sorted([x for x in group if x[0] >= mem_idx],
+                              key=lambda x: x[1])
+        for x in left_sorted + right_sorted:
+            sorted_ind.append(x[0])
+            sorted_E.append(x[1])
+            sorted_states.append(x[2])
+    return np.atleast_2d(sorted_states),np.array(sorted_ind),np.array(sorted_E)
+
+def save_sorted_state_txt(fname,states_set,patterns,sorted_ind,states_sorted):
+    state_to_str    = lambda state: ''.join([ ('+' if s>0 else '-') for s in state ])
+    all_memories = np.concatenate((np.array(patterns),-np.array(patterns)))
+    mem_ind      = find_memory_indices(states_set,all_memories)
+
+    txt  = np.array([ f'\t{n+1:5d}\t:\t{state_to_str(s):s}\t\t|\t{m+1:5d}\t:\t{state_to_str(x):s}' for n,(s,m,x) in enumerate(zip(states_set,sorted_ind,states_sorted)) ], dtype=str)
+    txtm = np.array([ f'\t{mu+1:5d}\t:\t{state_to_str(s):s}\t\t(n={n+1:5d})' for mu,(n,s) in enumerate(zip(mem_ind,all_memories)) ], dtype=str)
+
+    txt = np.concatenate((
+        ['# memories and anti-memories (xi)'],
+        ['# \t\tmu\t:\tstate'],
+        txtm,
+        ['# original state ordering\t\t| sorted states (sigma)'],
+        ['# \t\tn\t:\tstate\t\t\t|\t\tn\t:\tstate'],
+        txt
+    ))
+    np.savetxt(fname,txt,fmt='%s')
+    print(f' *** file saved ... {fname}')
+    return txt
+
 class DistributionType(IntEnum):
     Uniform    = 1
     Normal     = 2
