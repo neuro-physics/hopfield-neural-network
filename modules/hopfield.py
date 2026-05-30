@@ -6,6 +6,10 @@ try:
 except ModuleNotFoundError:
     cv2 = None
 
+def find_first(cond):
+    k = np.nanargmax(cond)
+    return k if cond[k] else -1
+
 def generate_ising_states(N):
     """
     Generate the first 2^(N-1) spin configurations of an N-spin Ising system.
@@ -96,6 +100,48 @@ def find_memory_indices(states, memories):
                 break
     return np.array(memory_indices)
 
+def sort_basins(state_mem, E):
+    """
+    Group states by attractor basin and sort the states inside each basin
+    according to their energy.
+    Parameters
+    ----------
+    state_mem : ndarray of shape (n_states,)
+        Integer array whose element ``state_mem[i]`` gives the index mu 
+        of the attractor (memory) reached by state ``i`` under the network dynamics.
+    E : ndarray of shape (n_states,)
+        Energy associated with each network state.
+    Returns
+    -------
+    states_basin : ndarray of shape (n_states,)
+        Array containing the reordered state indices. States are first
+        grouped by attractor basin and then sorted by increasing energy
+        within each basin.
+    E_basin : ndarray of shape (n_states,)
+        Energies reordered consistently with ``states_basin``.
+    Notes
+    -----
+    The ordering produced by this function is useful for visualizing the
+    energy landscape of Hopfield networks, since states belonging to the
+    same attractor basin appear grouped together.
+    """
+    # first group states by attractor index
+    states_basin = np.argsort(state_mem)
+    # reordered energies
+    E_basin = E[states_basin]
+    # unique basin labels
+    basins = np.unique(state_mem)
+    # sort states inside each basin by energy
+    for mu in basins:
+        # positions inside the reordered array
+        ind = np.where(state_mem[states_basin] == mu)[0]
+        # energy ordering inside this basin
+        k = np.argsort(E_basin[ind])
+        # reorder basin states
+        states_basin[ind] = states_basin[ind][k]
+        E_basin[ind]      = E_basin[ind][k]
+    return states_basin, E_basin
+
 def sort_states_around_energy_minima(states, energies, memories):
     """
     Reorder states to highlight each memory as a local energy minimum.
@@ -166,12 +212,12 @@ def sort_states_around_energy_minima(states, energies, memories):
             sorted_states.append(x[2])
     return np.atleast_2d(sorted_states),np.array(sorted_ind),np.array(sorted_E)
 
-def save_sorted_state_txt(fname,states_set,patterns,sorted_ind,states_sorted):
+def save_sorted_state_txt(fname,states_set,patterns,sorted_ind,states_sorted,states_basin_ind,states_basin):
     state_to_str    = lambda state: ''.join([ ('+' if s>0 else '-') for s in state ])
     all_memories = np.concatenate((np.array(patterns),-np.array(patterns)))
     mem_ind      = find_memory_indices(states_set,all_memories)
 
-    txt  = np.array([ f'\t{n+1:5d}\t:\t{state_to_str(s):s}\t\t|\t{m+1:5d}\t:\t{state_to_str(x):s}' for n,(s,m,x) in enumerate(zip(states_set,sorted_ind,states_sorted)) ], dtype=str)
+    txt  = np.array([ f'\t{n+1:5d}\t:\t{state_to_str(s):s}\t\t|\t{m+1:5d}\t:\t{state_to_str(x):s}\t\t|\t{k+1:5d}\t:\t{state_to_str(y):s}\t:\t{b+1:3d}' for n,(s,m,x,k,y,b) in enumerate(zip(states_set,sorted_ind,states_sorted,states_basin_ind,states_set[states_basin_ind],states_basin)) ], dtype=str)
     txtm = np.array([ f'\t{mu+1:5d}\t:\t{state_to_str(s):s}\t\t(n={n+1:5d})' for mu,(n,s) in enumerate(zip(mem_ind,all_memories)) ], dtype=str)
 
     txt = np.concatenate((
@@ -179,7 +225,7 @@ def save_sorted_state_txt(fname,states_set,patterns,sorted_ind,states_sorted):
         ['# \t\tmu\t:\tstate'],
         txtm,
         ['# original state ordering\t\t| sorted states (sigma)'],
-        ['# \t\tn\t:\tstate\t\t\t|\t\tn\t:\tstate'],
+        ['# \t\tn\t:\tstate\t\t\t|\t\tn\t:\tstate\t\t\t|\t\tn\t:\tstate\t\t:\tbasin'],
         txt
     ))
     np.savetxt(fname,txt,fmt='%s')
