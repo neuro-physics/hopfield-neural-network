@@ -331,13 +331,23 @@ def get_plus_pattern(L=10):
     p[max((m-1,0)),:] = 1
     return p.flatten()
 
-def get_stripe_pattern(L=10):
-    """Generates a 2D '+' shape pattern"""
+def get_sharp_pattern(L=10):
+    """Generates a 2D sharp-shaped pattern"""
     p      = -np.ones((L,L))
     p[:,L//3]   = 1
     p[L//3,:]   = 1
     p[:,2*L//3] = 1
     p[2*L//3,:] = 1
+    return p.flatten()
+
+def get_striped_pattern(L=10,direction='h'):
+    direction = direction.lower()
+    assert direction in ['h','v'], 'direction must be h for horizontal or v for vertical'
+    p         = np.ones((L,L),dtype=float)
+    if direction == 'v':
+        p[:,::2]  = -1
+    else:
+        p[1::2,:] = -1
     return p.flatten()
 
 def _make_list(X):
